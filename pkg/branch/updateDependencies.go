@@ -46,6 +46,18 @@ func UpdateDependencies(manifest model.Manifest, dryrun bool) error {
 		return fmt.Errorf("failed to update go-control-plane/contrib: %v", err)
 	}
 
+	// Regenerate the Envoy filter type imports before update_deps.sh runs `go mod tidy`.
+	// Envoy periodically drops contrib extensions (e.g. the DLB connection balancer, removed in
+	// go-control-plane b5dc198). filter_types.gen.go still blank-imports them, so tidy fails
+	// resolving a package that no longer exists at the version just pinned above. Regenerating
+	// here keeps the import list consistent with the new go-control-plane; `make gen` below runs
+	// the same generator again, so this is idempotent.
+	cmd = util.VerboseCommand("go", "generate", "./pkg/config/xds/...")
+	cmd.Dir = manifest.RepoDir(repo)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to regenerate envoy filter types: %v", err)
+	}
+
 	cmd = util.VerboseCommand("./bin/update_deps.sh")
 	cmd.Stdin = os.Stdin
 	cmd.Dir = manifest.RepoDir(repo)
